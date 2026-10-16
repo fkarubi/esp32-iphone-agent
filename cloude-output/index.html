@@ -1,0 +1,868 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ESP32 iPhone Agent 解説</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Noto+Sans+Mono:wght@400;700&display=swap">
+<style>
+/* 左に固定目次 210px ＋ 本文。上部固定バーに章メニューと検索。デジタル庁デザインシステムのトークン */
+:root{
+  --ink:#1a1a1a; --ink-2:#4d4d4d; --muted:#767676;
+  --paper:#ffffff; --surface:#ffffff; --surface-2:#f2f2f2;
+  --line:#cccccc; --line-soft:#e6e6e6;
+  --accent:#0017c1; --accent-soft:#e8f1fe; --accent-ink:#00118f;
+  --copper:#c74700; --copper-soft:#ffeee2;
+  --ok:#197a4b; --ok-soft:#e6f5ec;
+  --focus:#ffd43d;
+  --code-bg:#1a1a1a; --code-ink:#f2f2f2; --code-accent:#97d3ff;
+  --font:"Noto Sans JP","Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;
+  --mono:"Noto Sans Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ink:#f2f2f2; --ink-2:#cccccc; --muted:#999999;
+    --paper:#1a1a1a; --surface:#262626; --surface-2:#333333;
+    --line:#4d4d4d; --line-soft:#333333;
+    --accent:#9db7f9; --accent-soft:#000071; --accent-ink:#c5d7fb;
+    --copper:#ffa66d; --copper-soft:#541e00;
+    --ok:#7fd3a6; --ok-soft:#0f3a26;
+    --code-bg:#000000; --code-ink:#e6e6e6;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --ink:#f2f2f2; --ink-2:#cccccc; --muted:#999999;
+  --paper:#1a1a1a; --surface:#262626; --surface-2:#333333;
+  --line:#4d4d4d; --line-soft:#333333;
+  --accent:#9db7f9; --accent-soft:#000071; --accent-ink:#c5d7fb;
+  --copper:#ffa66d; --copper-soft:#541e00;
+  --ok:#7fd3a6; --ok-soft:#0f3a26;
+  --code-bg:#000000; --code-ink:#e6e6e6;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+body{background:var(--paper);color:var(--ink);font-family:var(--font);font-size:17px;line-height:1.7;letter-spacing:.02em;padding-top:54px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:60;background:var(--surface)}
+h1,h2,h3,h4{line-height:1.4;letter-spacing:0;text-wrap:balance;margin:0}
+p{margin:0}
+a{color:var(--accent)}
+a:hover{color:var(--accent-ink)}
+:focus-visible{outline:4px solid var(--focus);box-shadow:0 0 0 4px var(--focus),0 0 0 5px #1a1a1a;border-radius:4px}
+code{font-family:var(--mono);font-size:.92em;background:var(--surface-2);padding:1px 5px;border-radius:4px;word-break:break-all}
+
+/* 上部バー */
+.topbar{position:fixed;top:env(safe-area-inset-top,0px);left:0;right:0;z-index:50;background:var(--surface);border-bottom:1px solid var(--line);height:54px;display:flex;align-items:center;gap:12px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.topbar .menu-btn{flex:none;font:inherit;font-size:15px;font-weight:700;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:6px 12px;cursor:pointer}
+.topbar .brand{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.search{position:relative;flex:0 1 300px;min-width:0}
+.search input{width:100%;font:inherit;font-size:15px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--ink)}
+.results{position:absolute;right:0;top:44px;width:min(440px,calc(100vw - 32px));max-height:60vh;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.18);padding:6px;z-index:70}
+.results button{display:block;width:100%;text-align:left;font:inherit;font-size:15px;background:none;border:0;color:var(--ink);padding:8px 10px;border-radius:4px;cursor:pointer}
+.results button[aria-selected="true"],.results button:hover{background:var(--accent-soft)}
+.results .where{display:block;font-size:14px;color:var(--muted);font-weight:700}
+.results mark{background:var(--focus);color:#1a1a1a}
+.results .none{padding:10px;color:var(--muted);font-size:15px}
+.chapmenu{position:fixed;top:calc(54px + env(safe-area-inset-top,0px));left:max(8px,env(safe-area-inset-left,0px));z-index:55;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.18);padding:6px;width:min(320px,calc(100vw - 16px));max-height:70vh;overflow:auto}
+.chapmenu a,.toc a{display:flex;gap:8px;text-decoration:none;color:var(--ink);padding:6px 10px;border-radius:4px;font-size:15px}
+.chapmenu a:hover,.toc a:hover{background:var(--accent-soft)}
+.chapmenu a span,.toc a span{color:var(--accent);font-family:var(--mono);font-weight:700}
+@media (max-width:560px){.topbar .brand{display:none}.search{flex:1}}
+
+/* レイアウト */
+.wrap{display:grid;grid-template-columns:210px minmax(0,1fr);gap:40px;max-width:1120px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px 80px}
+.toc{position:sticky;top:calc(70px + env(safe-area-inset-top,0px));align-self:start;max-height:calc(100vh - 90px);overflow:auto;border-right:1px solid var(--line-soft);padding-right:8px}
+.toc a{padding:4px 8px;font-size:14px}
+.toc a.on{background:var(--accent-soft);font-weight:700}
+@media (max-width:900px){.wrap{grid-template-columns:minmax(0,1fr)}.toc{display:none}}
+main{min-width:0;display:flex;flex-direction:column;gap:64px}
+section{scroll-margin-top:68px;display:flex;flex-direction:column;gap:18px;min-width:0}
+section > p, .lead, li, dd{max-width:66ch}
+.hero{display:flex;flex-direction:column;gap:12px;border-bottom:1px solid var(--line);padding-bottom:28px}
+.hero .kicker{font-size:14px;font-weight:700;color:var(--accent);letter-spacing:.08em}
+.hero h1{font-size:clamp(26px,5vw,38px)}
+.hero .sub{color:var(--ink-2);max-width:60ch}
+.hero .meta{font-size:14px;color:var(--muted)}
+h2{font-size:clamp(22px,3.6vw,28px);display:flex;gap:12px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:8px}
+h2 .num{font-family:var(--mono);color:var(--accent);font-size:.8em}
+h3{font-size:20px}
+.lead{font-weight:700;font-size:18px}
+ul,ol{margin:0;padding-left:1.4em;display:flex;flex-direction:column;gap:4px}
+.small{font-size:15px;color:var(--ink-2)}
+
+/* 表 */
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;min-width:520px;font-size:16px}
+th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line-soft)}
+th{background:var(--surface-2);font-weight:700;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.yes{color:var(--ok);font-weight:700}
+td.no{color:var(--copper);font-weight:700}
+
+/* 枠 */
+.note,.tip{border-left:6px solid var(--copper);background:var(--copper-soft);padding:12px 16px;border-radius:0 8px 8px 0;display:flex;flex-direction:column;gap:6px}
+.tip{border-left-color:var(--accent);background:var(--accent-soft)}
+.note b.lb,.tip b.lb{font-size:14px;letter-spacing:.06em}
+.note b.lb{color:var(--copper)}
+.tip b.lb{color:var(--accent-ink)}
+
+/* たとえ話 */
+.analogy{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.analogy div{border:1px solid var(--line);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:4px;background:var(--surface)}
+.analogy .part{font-size:14px;font-weight:700;color:var(--accent)}
+.analogy .big{font-size:20px;font-weight:700}
+
+/* 事例 */
+.cases{display:flex;flex-direction:column;gap:16px}
+.case{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)}
+.case header{background:var(--surface-2);padding:12px 16px;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline}
+.case header .lbl{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--accent)}
+.case header h3{font-size:19px}
+.case .body{padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.case dl{display:grid;grid-template-columns:7.5em minmax(0,1fr);gap:8px 14px;margin:0}
+.case dt{font-weight:700;font-size:15px;color:var(--ink-2)}
+.case dd{margin:0}
+@media (max-width:560px){.case dl{grid-template-columns:minmax(0,1fr)}.case dd{padding-bottom:4px}}
+.tag{display:inline-block;font-size:14px;font-weight:700;padding:1px 8px;border-radius:4px;border:1px solid var(--line);color:var(--ink-2)}
+.tag.off{border-color:var(--copper);color:var(--copper)}
+
+/* 判定 */
+.verdict{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.verdict > div{border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.verdict h3{font-size:17px}
+.verdict .y h3{color:var(--ok)}
+.verdict .n h3{color:var(--copper)}
+
+/* 手順 */
+.steps{list-style:none;padding:0;counter-reset:st;display:flex;flex-direction:column;gap:22px}
+.steps > li{counter-increment:st;display:grid;grid-template-columns:40px minmax(0,1fr);gap:4px 14px;max-width:none}
+.steps > li::before{content:counter(st);grid-row:1 / span 3;width:36px;height:36px;border-radius:50%;background:var(--accent);color:var(--paper);display:grid;place-items:center;font-weight:700;font-family:var(--mono)}
+.steps > li > *{grid-column:2;min-width:0}
+.steps .st{font-weight:700;font-size:18px}
+.steps .content{display:flex;flex-direction:column;gap:10px}
+.stage{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.stage div{border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+.stage b{color:var(--accent)}
+
+/* コマンド */
+.cmd{position:relative;background:var(--code-bg);color:var(--code-ink);border-radius:8px;min-width:0}
+.cmd pre{margin:0;overflow-x:auto;padding:14px 16px;padding-right:84px;font-family:var(--mono);font-size:14.5px;line-height:1.6}
+.cmd code{background:none;padding:0;color:inherit;word-break:normal}
+.cmd .p{color:var(--code-accent)}
+.copy{position:absolute;top:8px;right:8px;font:inherit;font-size:14px;font-weight:700;background:#f2f2f2;color:#1a1a1a;border:0;border-radius:4px;padding:4px 10px;cursor:pointer}
+.copy.done{background:var(--focus)}
+
+/* 設定カード */
+.setting{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.setting > .hd{background:var(--ink);color:var(--paper);padding:10px 16px;display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+.setting > .hd .k{font-family:var(--mono);font-size:14px;font-weight:700;opacity:.85}
+.setting > .hd h3{font-size:18px}
+.setting > .bd{padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.when{display:flex;gap:10px}
+.when b{flex:none;font-size:14px;background:var(--accent-soft);color:var(--accent-ink);padding:2px 8px;border-radius:4px;height:fit-content}
+.pros{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.pros div{border:1px solid var(--line-soft);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+.pros .m b{color:var(--ok);font-size:14px}
+.pros .d b{color:var(--copper);font-size:14px}
+
+/* 図 */
+figure{margin:0;display:flex;flex-direction:column;gap:8px}
+.fig{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:12px}
+.fig svg{display:block;width:100%;min-width:620px;height:auto}
+figcaption{font-size:15px;color:var(--ink-2)}
+.svg-box{fill:var(--surface-2);stroke:var(--line);stroke-width:1.5}
+.svg-hl{fill:var(--accent-soft);stroke:var(--accent);stroke-width:2}
+.svg-warn{fill:var(--copper-soft);stroke:var(--copper);stroke-width:1.5}
+.svg-t{fill:var(--ink);font-family:var(--font);font-size:15px;font-weight:700}
+.svg-s{fill:var(--ink-2);font-family:var(--font);font-size:12.5px}
+.svg-a{stroke:var(--accent);stroke-width:2.5;fill:none}
+.svg-a2{stroke:var(--copper);stroke-width:2.5;fill:none}
+.svg-ah{fill:var(--accent)}
+.svg-ah2{fill:var(--copper)}
+.svg-al{fill:var(--accent-ink);font-family:var(--font);font-size:12.5px;font-weight:700}
+.svg-al2{fill:var(--copper);font-family:var(--font);font-size:12.5px;font-weight:700}
+
+/* 用語集 */
+dl.gl{display:grid;grid-template-columns:minmax(150px,220px) minmax(0,1fr);gap:0;margin:0;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+dl.gl dt{font-weight:700;padding:10px 14px;background:var(--surface-2);border-bottom:1px solid var(--line-soft);scroll-margin-top:68px}
+dl.gl dd{margin:0;padding:10px 14px;border-bottom:1px solid var(--line-soft);max-width:none}
+dl.gl dt.hit,dl.gl dt.hit + dd{background:var(--accent-soft)}
+@media (max-width:560px){dl.gl{grid-template-columns:minmax(0,1fr)}dl.gl dd{border-bottom:1px solid var(--line)}}
+
+/* 用語ポップアップ */
+.tt{border-bottom:2px dotted var(--accent);cursor:help}
+#pop{position:absolute;z-index:80;max-width:min(340px,calc(100vw - 32px));background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.22);padding:12px 14px;font-size:15px;line-height:1.6;display:flex;flex-direction:column;gap:6px}
+#pop b{font-size:16px}
+#pop a{font-size:14px;font-weight:700}
+
+/* 章送り・戻る */
+.pager{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;border-top:1px solid var(--line-soft);padding-top:14px;font-size:15px}
+.pager a{text-decoration:none;font-weight:700;padding:6px 10px;border:1px solid var(--line);border-radius:8px;max-width:100%}
+.backbtn{position:fixed;right:calc(16px + env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:65;font:inherit;font-size:15px;font-weight:700;background:var(--accent);color:var(--paper);border:0;border-radius:8px;padding:10px 16px;box-shadow:0 4px 16px rgba(0,0,0,.25);cursor:pointer;max-width:calc(100vw - 32px)}
+.hitflash{animation:hit 1.6s ease-out}
+@keyframes hit{0%{background:var(--focus);color:#1a1a1a}100%{background:transparent}}
+
+footer{border-top:1px solid var(--line);padding-top:16px;font-size:14px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+</style>
+<style>body{margin:0}[hidden]{display:none!important}img{max-width:100%}</style>
+</head>
+<body id="top">
+
+
+<div class="topbar" role="banner">
+  <button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="chapMenu">≡ 章を選ぶ</button>
+  <div class="brand">ESP32 iPhone Agent 解説</div>
+  <div class="search">
+    <input id="q" type="search" placeholder="検索（/ キー）" aria-label="ページ内を検索" autocomplete="off">
+    <div class="results" id="results" hidden role="listbox"></div>
+  </div>
+</div>
+<nav class="chapmenu" id="chapMenu" hidden aria-label="章メニュー"></nav>
+
+<div class="wrap">
+<nav class="toc" id="toc" aria-label="目次"></nav>
+<main>
+
+<header class="hero">
+  <div class="kicker">fkarubi/esp32-iphone-agent の解説</div>
+  <h1>小さな基板で、AIがiPhoneを指で操作するしくみ</h1>
+  <p class="sub">1,000円台の基板をiPhoneに挿すだけで、AIが画面を見て、タップして、文字を打つ。パソコンも脱獄もいらない。その中身と使い道、導入のやり方までをまとめた。</p>
+  <p class="meta">2026年10月16日時点のリポジトリ（コミット d427a2f）をもとに作成。元の作者は onehumanbeing（Henry Yuan）さん。</p>
+</header>
+
+<section id="s1">
+  <h2><span class="num">01</span>これは何？（小学生向け）</h2>
+  <p class="lead">ひとことで言うと「AIに目と手をつけて、iPhoneを代わりに使ってもらう道具」。</p>
+  <p>ふつうAIは、話しかけると答えを返すだけ。iPhoneのボタンは押せない。このしくみを使うと、AIがiPhoneの画面を<b>見て</b>、どこを押すか<b>考えて</b>、本当に<b>押す</b>ところまでやってくれる。</p>
+  <div class="analogy">
+    <div><span class="part">目</span><span class="big">画面を見る</span><span class="small">基板がiPhoneの画面をテレビのように映してもらう（<span class="tt" data-t="mirroring" tabindex="0">画面ミラーリング</span>）。</span></div>
+    <div><span class="part">あたま</span><span class="big">どこを押すか考える</span><span class="small">iPhoneのアプリが画面の写真をAIに送り、「次はここを押して」と答えをもらう。</span></div>
+    <div><span class="part">手</span><span class="big">本当に押す</span><span class="small">基板がマウスとキーボードのふりをして、画面の矢印を動かしてクリックする。</span></div>
+  </div>
+  <p>たとえるなら、<b>電話で道案内してくれる友だち</b>。友だち（AI）は画面の写真を見て「右上の歯車を押して」と言う。あなたの代わりに押すのは、iPhoneに挿した小さな基板。これを「できた！」となるまでくり返す。</p>
+  <h3>できること・できないこと</h3>
+  <div class="tw"><table>
+    <thead><tr><th>やりたいこと</th><th>できる？</th><th>ひとこと</th></tr></thead>
+    <tbody>
+      <tr><td>アプリを開く、ボタンを押す、スワイプする</td><td class="yes">できる</td><td>マウス操作でタップ・スワイプを再現</td></tr>
+      <tr><td>英数字を打つ</td><td class="yes">できる</td><td>キーボードのふりをして打つ</td></tr>
+      <tr><td>日本語を打つ</td><td class="no">まだ無理</td><td>英数字だけ。日本語入力は今後の予定に入っている</td></tr>
+      <tr><td>横向きのアプリ（ゲームなど）</td><td class="no">まだ無理</td><td>縦向きが前提</td></tr>
+      <tr><td>パスコード入力・Apple Pay の画面</td><td class="no">見えない</td><td>iPhoneがそもそも映さない画面</td></tr>
+      <tr><td>画面ロック中の操作</td><td class="no">できない</td><td>ロックすると映像が止まる</td></tr>
+      <tr><td>速さ</td><td>ゆっくり</td><td>1手あたり数秒。人間よりかなり遅い</td></tr>
+    </tbody>
+  </table></div>
+  <div class="verdict">
+    <div class="y"><h3>向いている人</h3><ul><li>電子工作やMacの操作に抵抗がない</li><li>「AIに実機を触らせる」を自分の手で試したい</li><li>同じ操作を何度もくり返す用事がある</li></ul></div>
+    <div class="n"><h3>向いていない人</h3><ul><li>買ってすぐ使えるアプリが欲しい（App Storeには無い）</li><li>日本語入力が必要な作業をさせたい</li><li>目を離して完全におまかせしたい</li></ul></div>
+  </div>
+</section>
+
+<section id="s2">
+  <h2><span class="num">02</span>AIを使う使い方（5つ）</h2>
+  <p class="lead">基本は「やってほしいことを文章で入れて Start を押す」だけ。AIが画面を見ながら1手ずつ進める。</p>
+  <div class="tip"><b class="lb">共通の流れ</b><p>アプリに指示を入れる → Start → <span class="tt" data-t="island" tabindex="0">Dynamic Island</span>で進み具合を見る → 終わったら「Runs」タブで1手ずつ再生して確認 → うまくいった指示は保存して次から1タップで呼び出す。</p></div>
+  <div class="tip"><b class="lb">指示文の言葉</b><p>指示文はAIに渡るだけなので日本語で書ける。iPhoneに<b>打ち込む</b>文字だけは英数字に限られる。うまく動かないときは、指示を短く区切るか英語で試す。</p></div>
+  <div class="cases">
+    <article class="case">
+      <header><span class="lbl">AI-1</span><h3>アラームをまとめて設定する（公式のデモ）</h3></header>
+      <div class="body"><dl>
+        <dt>こんな場面</dt><dd>曜日ごとに違うアラームを何本も作るのが面倒なとき。</dd>
+        <dt>指示の例</dt><dd><code>Set an alarm for 8:00 AM that repeats every Monday and Tuesday, then save it</code></dd>
+        <dt>AIの動き</dt><dd>自分のアプリを抜けて「時計」を開く → ＋を押す → 時刻のホイールに8:00を入れる → 月・火にチェック → 保存。</dd>
+        <dt>使い方のコツ</dt><dd>1本ずつ指示すると成功しやすい。終わったら時計アプリで中身を自分の目で確認する。</dd>
+      </dl></div>
+    </article>
+    <article class="case">
+      <header><span class="lbl">AI-2</span><h3>設定アプリの奥にある項目を開く・切り替える</h3></header>
+      <div class="body"><dl>
+        <dt>こんな場面</dt><dd>「文字を大きくする」「明るさの自動調節を切る」など、どこにあるか探すのが面倒な設定。</dd>
+        <dt>指示の例</dt><dd>「設定を開いて、画面表示と明るさの文字サイズを1段大きくして」／公式例 <code>Open Settings and go to Wi-Fi</code></dd>
+        <dt>AIの動き</dt><dd>ホーム画面から設定を探して開く → 項目をスクロールして探す → スイッチやスライダーを操作。</dd>
+        <dt>使い方のコツ</dt><dd>Wi-Fiは基板の<span class="tt" data-t="hotspot" tabindex="0">ホットスポット</span>につないでいる最中なので、Wi-Fiの接続先を変える指示はさせない（AIの目が切れる）。</dd>
+      </dl></div>
+    </article>
+    <article class="case">
+      <header><span class="lbl">AI-3</span><h3>毎朝の決まった操作をボタン1つで</h3></header>
+      <div class="body"><dl>
+        <dt>こんな場面</dt><dd>出勤前に「天気アプリで鹿児島の天気を開く」「カレンダーで今日の予定を表示」など、毎日同じ手順をふむ用事。</dd>
+        <dt>指示の例</dt><dd>「天気アプリを開いて、鹿児島の1時間ごとの予報を表示して終わって」</dd>
+        <dt>AIの動き</dt><dd>1回うまくいったら、⏺ボタン →「この実行を保存」で<span class="tt" data-t="intent" tabindex="0">インテント</span>として登録。以後は Siri、<span class="tt" data-t="shortcuts" tabindex="0">ショートカット</span>、ウィジェット、コントロールセンターから呼び出せる。</dd>
+        <dt>使い方のコツ</dt><dd>保存したインテントには成功率と平均時間が記録される。成功率が低いものは指示を短くする。</dd>
+      </dl></div>
+    </article>
+    <article class="case">
+      <header><span class="lbl">AI-4</span><h3>お手本を見せて手順を覚えさせる</h3></header>
+      <div class="body"><dl>
+        <dt>こんな場面</dt><dd>言葉で説明しにくい操作。たとえば店で使うアプリの「いつもの画面までの行き方」。</dd>
+        <dt>やり方</dt><dd>⏺ボタン →「Record me doing it（自分でやって見せる）」→ 自分で操作 → 停止。アプリが画面の変化から手順を書き起こし、自信のない手順は黄色で示す。直してから保存する。</dd>
+        <dt>AIの動き</dt><dd>次からは、その手順を手がかりに同じ作業をやり直す。</dd>
+        <dt>使い方のコツ</dt><dd>録画中も画面ミラーリングが必要。基板には指の動きが見えないので、ゆっくり大きく操作する。会社のアプリで使う場合は、社内のルールで自動操作が許されているかを先に確認する。</dd>
+      </dl></div>
+    </article>
+    <article class="case">
+      <header><span class="lbl">AI-5</span><h3>自作アプリやWebサイトを実機で見回る（副業向け）</h3></header>
+      <div class="body"><dl>
+        <dt>こんな場面</dt><dd>自分で作ったWebサイトやアプリが、iPhoneでちゃんと動くかを毎回確かめたいとき。</dd>
+        <dt>指示の例</dt><dd>「Safariで（自分のサイト）を開いて、お問い合わせボタンを押し、入力フォームが出るか確かめて」</dd>
+        <dt>AIの動き</dt><dd>実際の指の操作と同じ経路でボタンを押す。結果は「Runs」に残り、どこで何を押したかが絵つきで再生できる。</dd>
+        <dt>使い方のコツ</dt><dd>URLは英数字なので打ち込める。問い合わせを本当に送信させない（送信ボタンの手前で止める指示にする）。</dd>
+      </dl></div>
+    </article>
+  </div>
+</section>
+
+<section id="s3">
+  <h2><span class="num">03</span>AIを使わない使い方（5つ）</h2>
+  <p class="lead">基板は「マウス＋キーボード＋画面の受信機」なので、AI抜きでもMacから命令を送って動かせる。</p>
+  <div class="note"><b class="lb">先に知っておくこと</b><p>iPhoneアプリ側は全部AI前提で、AIなしのボタンは無い。ここで紹介するのは、開発用に付いている Mac のテスト道具 <code>board_test.py</code> を流用するやり方で、<b>公式の使い方ではない</b>。基板はiPhoneに挿したまま、MacからBluetoothで命令を送る。</p></div>
+  <div class="tip"><b class="lb">共通の準備</b><p>06章の手順でMacにファイルを取ってきて、ターミナルでそのフォルダに移動しておく。iPhoneの ESP32 Agent アプリは上にスワイプして終了しておく（Bluetoothを取り合わないようにするため）。最初の1回、Macに<span class="tt" data-t="ble" tabindex="0">Bluetooth</span>のペアリング確認が出たら許可する。</p></div>
+  <div class="cmd"><pre><code><span class="p"># 道具を入れる（1回だけ）</span>
+brew install uv ffmpeg
+<span class="p"># 基板が見えるかの確認</span>
+uv run hardware/tools/board_test.py info</code></pre><button class="copy">コピー</button></div>
+  <div class="cases">
+    <article class="case">
+      <header><span class="lbl">NO-AI-1</span><h3>Macで打った英数字をiPhoneに流し込む</h3><span class="tag off">AIなし</span></header>
+      <div class="body"><dl>
+        <dt>こんな場面</dt><dd>長いパスワード、Wi-Fiのキー、URL、商品のJANコードなどをiPhoneに手で打つのが面倒なとき。</dd>
+        <dt>使い方</dt><dd>iPhoneで入力欄をタップしてカーソルを出しておき、Macで次を実行。</dd>
+      </dl>
+      <div class="cmd"><pre><code>uv run hardware/tools/board_test.py cmd "type 4901234567894" "key enter"</code></pre><button class="copy">コピー</button></div>
+      <p class="small">英数字と記号のみ。日本語は打てない。</p></div>
+    </article>
+    <article class="case">
+      <header><span class="lbl">NO-AI-2</span><h3>Macからマウスのように遠隔操作する</h3><span class="tag off">AIなし</span></header>
+      <div class="body"><dl>
+        <dt>こんな場面</dt><dd>iPhoneをスタンドに置いたまま、手を伸ばさずに操作したいとき。</dd>
+        <dt>使い方</dt><dd>iPhoneの<span class="tt" data-t="assistive" tabindex="0">AssistiveTouch</span>をオンにしておく。<code>home</code>で矢印を左上へ寄せ、<code>move 横 縦</code>で動かし、<code>click</code>で押す。<code>homescreen</code>でホーム画面に戻る。</dd>
+      </dl>
+      <div class="cmd"><pre><code>uv run hardware/tools/board_test.py cmd "home" "move 200 400" "click"
+uv run hardware/tools/board_test.py cmd "scroll -3 0"     <span class="p"># 縦に3段スクロール</span>
+uv run hardware/tools/board_test.py cmd "homescreen"      <span class="p"># ホーム画面へ</span></code></pre><button class="copy">コピー</button></div>
+      <p class="small">矢印の移動量は画面の点（ピクセル）と一致しない。何回か試して目で合わせる。</p></div>
+    </article>
+    <article class="case">
+      <header><span class="lbl">NO-AI-3</span><h3>iPhoneの画面をMacに保存する</h3><span class="tag off">AIなし</span></header>
+      <div class="body"><dl>
+        <dt>こんな場面</dt><dd>スタッフ向けの操作マニュアルや、トラブル報告用に画面を残したいとき。iPhoneに触らずに撮れる。</dd>
+        <dt>使い方</dt><dd>iPhoneを基板のWi-Fiにつなぎ、コントロールセンター → 画面ミラーリング →「ESP32 Agent」を選んでから実行。<code>snap</code>は今の画面を1枚、<code>stream</code>は指定秒数の動画を保存する。</dd>
+      </dl>
+      <div class="cmd"><pre><code>uv run hardware/tools/board_test.py snap                  <span class="p"># → hardware/tools/out/snap.png</span>
+uv run hardware/tools/board_test.py stream --seconds 20   <span class="p"># → out/stream.h264（動画）</span>
+ffplay hardware/tools/out/stream.h264                    <span class="p"># 再生</span></code></pre><button class="copy">コピー</button></div>
+      <p class="small">画質は小さめ（480×1040、毎秒5コマ以下）。きれいな画像が要るならiPhone本体のスクショのほうが上。</p></div>
+    </article>
+    <article class="case">
+      <header><span class="lbl">NO-AI-4</span><h3>決まった手順を命令の並びで自動化する</h3><span class="tag off">AIなし</span></header>
+      <div class="body"><dl>
+        <dt>こんな場面</dt><dd>毎回まったく同じ位置を押すだけの作業。AI代がかからない。</dd>
+        <dt>使い方</dt><dd>命令を並べて1回で流す。例はキーボード操作で「検索を開いて時計アプリを起動」。</dd>
+      </dl>
+      <div class="cmd"><pre><code>uv run hardware/tools/board_test.py cmd "homescreen" "key cmd+space" "type clock" "key enter"</code></pre><button class="copy">コピー</button></div>
+      <p class="small">AIのように画面を見て判断しないので、通知が出たりボタンの位置が変わったりすると失敗する。見張りながら使う。</p></div>
+    </article>
+    <article class="case">
+      <header><span class="lbl">NO-AI-5</span><h3>ESP32の勉強・動作確認、アプリのお試し表示</h3><span class="tag off">AIなし</span></header>
+      <div class="body"><dl>
+        <dt>こんな場面</dt><dd>電子工作の教材として、Bluetoothの速さや、基板がUSBマウスになるしくみを確かめたいとき。基板が届く前にアプリの画面だけ見たいとき。</dd>
+        <dt>使い方</dt><dd>基板をMacに挿して <code>hid</code> を実行すると、Macのマウス矢印が勝手に動く。<code>bench</code> でBluetoothの転送速度を測れる。アプリは 設定 →「Demo data」をオンにして再起動すると、基板なしで全画面を見て回れる。</dd>
+      </dl>
+      <div class="cmd"><pre><code>uv run hardware/tools/board_test.py hid          <span class="p"># Macの矢印が動けば成功</span>
+uv run hardware/tools/board_test.py bench --kb 512</code></pre><button class="copy">コピー</button></div></div>
+    </article>
+  </div>
+</section>
+
+<section id="s4">
+  <h2><span class="num">04</span>しくみ</h2>
+  <p class="lead">基板が「目（映像の受信）」と「手（マウス）」、iPhoneアプリが「あたま（AIとのやりとり）」を受け持つ。</p>
+  <figure>
+    <div class="fig"><svg viewBox="0 0 760 330" role="img" aria-label="iPhone、ESP32基板、アプリ、AIの全体構成図">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="svg-ah"/></marker>
+        <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="svg-ah2"/></marker>
+      </defs>
+      <rect x="20" y="40" width="200" height="250" rx="8" class="svg-box"/>
+      <text x="120" y="70" text-anchor="middle" class="svg-t">iPhone</text>
+      <rect x="40" y="90" width="160" height="70" rx="8" class="svg-hl"/>
+      <text x="120" y="118" text-anchor="middle" class="svg-t">ESP32 Agent アプリ</text>
+      <text x="120" y="140" text-anchor="middle" class="svg-s">あたま：映像を読み、AIに聞く</text>
+      <rect x="40" y="190" width="160" height="80" rx="8" class="svg-box"/>
+      <text x="120" y="218" text-anchor="middle" class="svg-t">画面</text>
+      <text x="120" y="240" text-anchor="middle" class="svg-s">AssistiveTouch の矢印が</text>
+      <text x="120" y="258" text-anchor="middle" class="svg-s">マウスで動く</text>
+      <rect x="330" y="120" width="190" height="110" rx="8" class="svg-hl"/>
+      <text x="425" y="152" text-anchor="middle" class="svg-t">ESP32-S3 基板</text>
+      <text x="425" y="176" text-anchor="middle" class="svg-s">AirPlay受信機（目）</text>
+      <text x="425" y="196" text-anchor="middle" class="svg-s">USBマウス・キーボード（手）</text>
+      <text x="425" y="216" text-anchor="middle" class="svg-s">自前のWi-Fiを出す</text>
+      <rect x="590" y="40" width="150" height="90" rx="8" class="svg-warn"/>
+      <text x="665" y="72" text-anchor="middle" class="svg-t">AI（画像が読める）</text>
+      <text x="665" y="94" text-anchor="middle" class="svg-s">クラウドのAPIや</text>
+      <text x="665" y="112" text-anchor="middle" class="svg-s">自宅のサーバー</text>
+      <path d="M200 225 C 260 240, 280 220, 328 205" class="svg-a" marker-end="url(#ah)"/>
+      <text x="236" y="262" class="svg-al">① 画面ミラーリング（Wi-Fi）</text>
+      <path d="M330 140 C 280 125, 250 120, 202 120" class="svg-a" marker-end="url(#ah)"/>
+      <text x="228" y="104" class="svg-al">② 映像をBluetoothで</text>
+      <path d="M200 100 C 330 40, 470 60, 588 80" class="svg-a2" marker-end="url(#ah2)"/>
+      <text x="300" y="44" class="svg-al2">③ 画面の写真 → AI（モバイル通信）</text>
+      <path d="M380 232 C 340 300, 260 300, 202 260" class="svg-a" marker-end="url(#ah)"/>
+      <text x="300" y="312" class="svg-al">④ USBでタップ・入力</text>
+    </svg></div>
+    <figcaption>図1：全体の構成。iPhoneのWi-Fiは基板につながるので、AIへの通信はモバイルデータ回線を使う。</figcaption>
+  </figure>
+  <figure>
+    <div class="fig"><svg viewBox="0 0 760 250" role="img" aria-label="1手ごとのくり返しの流れ">
+      <defs>
+        <marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="svg-ah"/></marker>
+      </defs>
+      <rect x="20" y="60" width="150" height="80" rx="8" class="svg-box"/>
+      <text x="95" y="92" text-anchor="middle" class="svg-t">1 見る</text>
+      <text x="95" y="116" text-anchor="middle" class="svg-s">画面の写真を撮る</text>
+      <rect x="210" y="60" width="150" height="80" rx="8" class="svg-hl"/>
+      <text x="285" y="92" text-anchor="middle" class="svg-t">2 考える</text>
+      <text x="285" y="116" text-anchor="middle" class="svg-s">AIが次の1手を決める</text>
+      <rect x="400" y="60" width="150" height="80" rx="8" class="svg-box"/>
+      <text x="475" y="92" text-anchor="middle" class="svg-t">3 押す</text>
+      <text x="475" y="116" text-anchor="middle" class="svg-s">矢印を動かしタップ</text>
+      <rect x="590" y="60" width="150" height="80" rx="8" class="svg-box"/>
+      <text x="665" y="92" text-anchor="middle" class="svg-t">4 確かめる</text>
+      <text x="665" y="116" text-anchor="middle" class="svg-s">画面が変わったか比べる</text>
+      <path d="M170 100 L208 100" class="svg-a" marker-end="url(#ah3)"/>
+      <path d="M360 100 L398 100" class="svg-a" marker-end="url(#ah3)"/>
+      <path d="M550 100 L588 100" class="svg-a" marker-end="url(#ah3)"/>
+      <path d="M665 140 C 665 215, 95 215, 95 142" class="svg-a" marker-end="url(#ah3)"/>
+      <text x="380" y="236" text-anchor="middle" class="svg-al">「終わり」とAIが判断するまでくり返す（1周 数秒）</text>
+      <text x="380" y="36" text-anchor="middle" class="svg-s">細かいタップの前は矢印を揺らして位置を探し、ずれを直してから押す</text>
+    </svg></div>
+    <figcaption>図2：1手ごとのくり返し。最初に「計画係（<span>プランナー</span>）」が段取りを書き、そのあと「実行係（アクター）」が1手ずつ決める。</figcaption>
+  </figure>
+  <div class="tw"><table>
+    <thead><tr><th>役目</th><th>担当</th><th>中身</th></tr></thead>
+    <tbody>
+      <tr><td>目</td><td>基板</td><td>iPhoneから<span class="tt" data-t="airplay" tabindex="0">AirPlay</span>で映像を受け取り、Bluetoothでアプリへ送る。基板では映像をほどかない（<span class="tt" data-t="h264" tabindex="0">H.264</span>のまま）</td></tr>
+      <tr><td>手</td><td>基板</td><td>USBの<span class="tt" data-t="hid" tabindex="0">HID</span>（マウス・キーボード）としてiPhoneを操作。クリック＝タップ、ドラッグ＝スワイプ</td></tr>
+      <tr><td>あたま</td><td>iPhoneアプリ</td><td>映像を画像にしてAIへ送り、返ってきた1手を基板に指示。裏で動き続け、止めるのはDynamic Islandから</td></tr>
+      <tr><td>記録</td><td>iPhoneアプリ</td><td>全部の実行をiPhoneに保存。タップ位置を重ねて1手ずつ再生できる</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s5">
+  <h2><span class="num">05</span>必要なもの・費用</h2>
+  <p class="lead">基板・ケーブル・Mac・AIのAPIキーがそろえば始められる。Macは最初の準備だけで、使うときは要らない。</p>
+  <div class="tw"><table>
+    <thead><tr><th>もの</th><th>条件</th><th>目安</th></tr></thead>
+    <tbody>
+      <tr><td>ESP32-S3 基板</td><td><b>Seeed Studio XIAO ESP32S3（無印・PSRAM 8MB）</b>で動作確認済み。「Sense」「Plus」ではない方</td><td>約7ドル。国内通販でおおむね1,500〜2,500円</td></tr>
+      <tr><td>iPhone</td><td>iOS 18以降。モバイルデータ通信が使えること</td><td>手持ち</td></tr>
+      <tr><td>つなぐケーブル</td><td>USB-CのiPhone（15以降）は基板と直結。LightningのiPhoneは「Lightning - USBカメラアダプタ」が必要</td><td>USB-C同士のケーブル数百円／アダプタは数千円</td></tr>
+      <tr><td>Mac</td><td>Xcode が入ること。基板への書き込みとアプリの組み立てに使う</td><td>手持ち</td></tr>
+      <tr><td>Apple ID</td><td>無料のものでOK（7日ごとに入れ直しが要る）。有料の開発者登録なら手間が減る</td><td>無料／有料は年額あり</td></tr>
+      <tr><td>AI（画像が読めるもの）</td><td><span class="tt" data-t="openai" tabindex="0">OpenAI互換</span>のAPIならどれでも。クラウドのAPIか、自宅のサーバー</td><td>使った分だけ課金</td></tr>
+    </tbody>
+  </table></div>
+  <h3>お金の考え方</h3>
+  <ul>
+    <li><b>最初にかかるのは基板とケーブルだけ</b>。数千円で収まる。</li>
+    <li><b>続けてかかるのはAI代</b>。毎回画面の画像を送るので、文字だけのチャットより使用量が増えやすい。1回の作業が10〜30手になることもある。</li>
+    <li>APIの管理画面で<b>月の上限額を必ず設定</b>しておく（08章）。</li>
+    <li>iPhoneのモバイルデータも使う。画像を送るぶん、ギガが減る。</li>
+  </ul>
+</section>
+
+<section id="s6">
+  <h2><span class="num">06</span>iPhoneへの導入手順</h2>
+  <p class="lead">「GitHubからファイルを取る → 基板に書き込む → アプリをiPhoneに入れる → アプリで4ステップ設定」の順。全部Macで進める。</p>
+  <div class="stage">
+    <div><b>所要時間</b><span>初回は2〜3時間みておく（ダウンロード待ちが長い）</span></div>
+    <div><b>App Storeには無い</b><span>自分のMacで組み立てて、自分のiPhoneに入れる方式</span></div>
+    <div><b>あなた用のリポジトリ</b><span>fkarubi/esp32-iphone-agent（元のプロジェクトの写し）を使う</span></div>
+  </div>
+  <ol class="steps">
+    <li>
+      <span class="st">Macに道具を入れる</span>
+      <div class="content">
+        <p>App Store で <b>Xcode</b> を入れて、1回起動して追加の部品を入れ終える（かなり時間がかかる）。次に「ターミナル」を開いて（Spotlightで「ターミナル」と入力）、以下を順に貼りつけて実行する。</p>
+        <div class="cmd"><pre><code><span class="p"># Homebrew（Mac用の道具箱）を入れる。入っていれば飛ばす</span>
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+<span class="p"># 基板に書き込む道具と git</span>
+brew install arduino-cli git</code></pre><button class="copy">コピー</button></div>
+        <p class="small">Homebrew の最後に「Next steps」と出たら、そこに書かれた2行もそのまま実行する。</p>
+      </div>
+    </li>
+    <li>
+      <span class="st">GitHubからファイルを取ってくる</span>
+      <div class="content">
+        <p><span class="tt" data-t="github" tabindex="0">GitHub</span>はプログラムのファイル置き場。置き場1つを<span class="tt" data-t="repo" tabindex="0">リポジトリ</span>と呼び、それを自分のMacに丸ごと写すことを<span class="tt" data-t="clone" tabindex="0">クローン</span>と呼ぶ。やり方は2つ。どちらか一方でいい。</p>
+        <div class="tw"><table>
+          <thead><tr><th>やり方</th><th>手順</th></tr></thead>
+          <tbody>
+            <tr><td>GitHub Desktop（画面で操作）</td><td>GitHub Desktop を入れてサインイン → File → Clone Repository → 一覧から <code>fkarubi/esp32-iphone-agent</code> → 保存先を「書類」にして Clone</td></tr>
+            <tr><td>ターミナル（下のコマンド）</td><td>「書類」フォルダに取ってきて、そのフォルダに入る</td></tr>
+          </tbody>
+        </table></div>
+        <div class="cmd"><pre><code>cd ~/Documents
+git clone https://github.com/fkarubi/esp32-iphone-agent.git
+cd esp32-iphone-agent</code></pre><button class="copy">コピー</button></div>
+        <p class="small">以降のコマンドは、すべてこの <code>esp32-iphone-agent</code> フォルダの中で実行する。ターミナルを開き直したら <code>cd ~/Documents/esp32-iphone-agent</code> から始める。</p>
+      </div>
+    </li>
+    <li>
+      <span class="st">基板にプログラムを書き込む</span>
+      <div class="content">
+        <p>基板（XIAO ESP32S3）をUSB-CケーブルでMacに挿す。基板用の部品を入れてから、付属の書き込み用スクリプトを実行する。</p>
+        <div class="cmd"><pre><code><span class="p"># ESP32用の部品（1回だけ。数分かかる）</span>
+arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+arduino-cli core install esp32:esp32@3.3.12 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+arduino-cli lib install "NimBLE-Arduino@2.5.1"
+<span class="p"># 書き込み（必ずこのスクリプトで）</span>
+hardware/flash.sh</code></pre><button class="copy">コピー</button></div>
+        <div class="note"><b class="lb">注意</b><p>Arduino IDE で直接書き込むと失敗する。必ず <code>hardware/flash.sh</code> を使う（Bluetoothの細かい設定を一緒に入れているため）。</p></div>
+      </div>
+    </li>
+    <li>
+      <span class="st">アプリの設定ファイルを作る</span>
+      <div class="content">
+        <p>見本をコピーして、テキストエディットで開く。</p>
+        <div class="cmd"><pre><code>cp ios/Config/Local.xcconfig.example ios/Config/Local.xcconfig
+open -e ios/Config/Local.xcconfig</code></pre><button class="copy">コピー</button></div>
+        <p>開いたファイルを、次のように書き換えて保存する（無料のApple IDの場合）。</p>
+        <div class="cmd"><pre><code>// DEVELOPMENT_TEAM = ABCDE12345
+IA_BUNDLE_ID = com.fkarubi.esp32agent
+IA_ENTITLEMENTS =
+IA_WIDGET_ENTITLEMENTS =</code></pre><button class="copy">コピー</button></div>
+        <ul>
+          <li>1行目は先頭に <code>//</code> を付けて無効にする（チームはXcodeの画面で選ぶ）。</li>
+          <li><code>IA_BUNDLE_ID</code> はアプリの名札。世界で重ならない名前にする。</li>
+          <li>下の2行を空にすると、有料アカウント専用の機能（Wi-Fiへのワンタップ接続など）を外して組み立てられる。外してもWi-Fiは手でつなげば使える。</li>
+        </ul>
+      </div>
+    </li>
+    <li>
+      <span class="st">iPhoneの準備をして、アプリを入れる</span>
+      <div class="content">
+        <p>iPhoneをMacにケーブルでつなぎ、「このコンピュータを信頼しますか」で信頼を押す。次にプロジェクトを開く。</p>
+        <div class="cmd"><pre><code>open ios/IPhoneAgent.xcodeproj</code></pre><button class="copy">コピー</button></div>
+        <ol>
+          <li>Xcode → Settings → Accounts で Apple ID を追加する。</li>
+          <li>左の一覧で一番上の「IPhoneAgent」→ ターゲット「IPhoneAgent」→ Signing &amp; Capabilities → Team で自分の名前（Personal Team）を選ぶ。ターゲット「AgentActivity」でも同じことをする。</li>
+          <li>画面上部の実行先で自分のiPhoneを選び、▶（Run）を押す。</li>
+          <li>iPhoneで 設定 → プライバシーとセキュリティ → <span class="tt" data-t="devmode" tabindex="0">デベロッパモード</span> をオン → 再起動。</li>
+          <li>アプリを開こうとして止められたら、設定 → 一般 → VPNとデバイス管理 → 自分のApple ID → 信頼。</li>
+          <li>もう一度 ▶ を押すと「ESP32 Agent」が起動する。</li>
+        </ol>
+      </div>
+    </li>
+    <li>
+      <span class="st">アプリの4ステップ設定（最初の1回）</span>
+      <div class="content">
+        <p>基板をiPhoneに挿して ESP32 Agent を開くと、案内が4画面出る。各ステップはアプリが自分で確認してくれる。</p>
+        <div class="tw"><table>
+          <thead><tr><th>画面</th><th>やること</th></tr></thead>
+          <tbody>
+            <tr><td>Plug Me In</td><td>基板とBluetoothでペアリングする</td></tr>
+            <tr><td>Let Me See the Screen</td><td>基板のWi-Fi（ESP32Agent-xxxx）につなぐ → コントロールセンター → 画面ミラーリング →「ESP32 Agent」</td></tr>
+            <tr><td>Let Me Use the Pointer</td><td>設定 → アクセシビリティ → タッチ → AssistiveTouch をオン。アプリが矢印の位置合わせを自動でやる</td></tr>
+            <tr><td>Give Me a Brain</td><td>AIの「Base URL」と<span class="tt" data-t="apikey" tabindex="0">APIキー</span>を入れる。キーはiPhoneのキーチェーンに保存される。モデルは一覧から自動で選ばれる</td></tr>
+          </tbody>
+        </table></div>
+        <p>Base URL の例（OpenAI を使う場合）：</p>
+        <div class="cmd"><pre><code>https://api.openai.com/v1</code></pre><button class="copy">コピー</button></div>
+        <div class="tip"><b class="lb">うまく動かすコツ</b><p>AssistiveTouch → ポインタデバイス で「軌跡の速さ」を真ん中に、「ポインタのアニメーション」をオフにする（アプリの案内にある推奨設定）。</p></div>
+      </div>
+    </li>
+    <li>
+      <span class="st">試しに動かす</span>
+      <div class="content">
+        <p>指示欄に「設定を開いてWi-Fiの画面へ行って」と入れて Start。Dynamic Island に動きが出れば完成。</p>
+      </div>
+    </li>
+  </ol>
+  <div class="note"><b class="lb">アプリの表示は英語</b><p>アプリの画面は英語と中国語だけで、日本語の表示はまだ無い。iPhoneが日本語設定なら英語で表示される。</p></div>
+</section>
+
+<section id="s7">
+  <h2><span class="num">07</span>毎日の使い方</h2>
+  <p class="lead">基板を挿す → 基板のWi-Fiにつなぐ → 画面ミラーリング → 指示して Start。</p>
+  <div class="tw"><table>
+    <thead><tr><th>やりたいこと</th><th>操作</th></tr></thead>
+    <tbody>
+      <tr><td>作業をさせる</td><td>ホーム画面の指示欄に入力 → Start</td></tr>
+      <tr><td>途中で止める</td><td>Dynamic Island の停止ボタン、またはアプリに戻って停止</td></tr>
+      <tr><td>やったことを確認</td><td>Runs タブ → 実行を選ぶ → 1手ずつ再生</td></tr>
+      <tr><td>うまくいった指示を残す</td><td>⏺ ボタン → 直前の実行を保存（インテント）</td></tr>
+      <tr><td>お手本を見せて覚えさせる</td><td>⏺ ボタン → Record me doing it</td></tr>
+      <tr><td>保存した作業を呼び出す</td><td>Siri、ショートカット、ウィジェット、コントロールセンター</td></tr>
+      <tr><td>矢印がずれてきた</td><td>録画ボタンの下に出る Calibrate を押す</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Macの命令一覧（03章のAIなし操作で使う）</h3>
+  <div class="tw"><table>
+    <thead><tr><th>命令</th><th>意味</th></tr></thead>
+    <tbody>
+      <tr><td><code>home</code></td><td>矢印を左上の角へ寄せる（位置のリセット）</td></tr>
+      <tr><td><code>move 横 縦</code></td><td>矢印を動かす。右・下がプラス</td></tr>
+      <tr><td><code>click</code> / <code>press</code> / <code>release</code></td><td>タップ／押しっぱなし／離す（press→move→release でスワイプ）</td></tr>
+      <tr><td><code>scroll 縦 横</code></td><td>スクロール</td></tr>
+      <tr><td><code>type 文字</code></td><td>英数字を打つ</td></tr>
+      <tr><td><code>key 組み合わせ</code></td><td>キーを押す。例 <code>enter</code> <code>esc</code> <code>cmd+h</code> <code>cmd+space</code></td></tr>
+      <tr><td><code>homescreen</code></td><td>ホーム画面へ戻る</td></tr>
+      <tr><td><code>snap</code> / <code>stream on|off</code></td><td>画面を1枚取る／動画を流す</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s8">
+  <h2><span class="num">08</span>安全・注意</h2>
+  <p class="lead">AIはあなたの指で操作するのと同じ。見張って、止めるボタンをすぐ押せるようにしておく。</p>
+  <div class="stage">
+    <div><b>まず試すだけ</b><span>設定01だけやる</span></div>
+    <div><b>毎日使う</b><span>設定01・02</span></div>
+    <div><b>大事なアプリも触らせる</b><span>全部。ただしお金・送信がからむ操作はさせない</span></div>
+  </div>
+  <div class="setting">
+    <div class="hd"><span class="k">設定 01</span><h3>AI代の上限を決める</h3></div>
+    <div class="bd">
+      <div class="when"><b>こんなとき</b><p>使い始める前に必ず。</p></div>
+      <p>APIの管理画面（OpenAIなら Billing → Limits）で月の上限額を設定する。キーはこのアプリ専用に1本作る。</p>
+      <div class="pros"><div class="m"><b>メリット</b><p>AIがくり返し失敗しても請求が膨らまない。</p></div><div class="d"><b>デメリット</b><p>上限に達すると途中で止まる。</p></div></div>
+    </div>
+  </div>
+  <div class="setting">
+    <div class="hd"><span class="k">設定 02</span><h3>お金・送信・削除はさせない</h3></div>
+    <div class="bd">
+      <div class="when"><b>こんなとき</b><p>買い物、送金、メッセージ送信、データ削除がからむ作業。</p></div>
+      <p>指示文に「送信・購入・削除の直前で止めて」と書く。Apple Pay やパスコードの画面はそもそもAIに見えないので、そこで止まる。</p>
+      <div class="pros"><div class="m"><b>メリット</b><p>取り返しのつかない操作を防げる。</p></div><div class="d"><b>デメリット</b><p>最後のひと押しは自分でやる手間が残る。</p></div></div>
+    </div>
+  </div>
+  <div class="setting">
+    <div class="hd"><span class="k">設定 03</span><h3>使ってよいアプリかを確かめる</h3></div>
+    <div class="bd">
+      <div class="when"><b>こんなとき</b><p>会社のアプリ、ゲーム、SNSなど他人のサービスを操作させるとき。</p></div>
+      <p>自分の端末とアカウント、使ってよいと許されたものだけに使う。各アプリの利用規約や社内ルールで自動操作が禁止されていないかを見る。</p>
+      <div class="pros"><div class="m"><b>メリット</b><p>アカウント停止や社内トラブルを避けられる。</p></div><div class="d"><b>デメリット</b><p>使える場面が減る。</p></div></div>
+    </div>
+  </div>
+  <div class="note"><b class="lb">その他の注意</b>
+    <ul>
+      <li>動いている間、iPhoneのWi-Fiは基板につながっていてインターネットは使えない。通信はモバイルデータ回線。</li>
+      <li>アプリはiOSの非公開の仕組み（自分を裏に回す機能）を使っている。自分で組み立てて使う分には問題ないが、App Storeには出せない作り。</li>
+      <li>基板のプログラムのうちAirPlay部分は<span class="tt" data-t="gpl" tabindex="0">GPL-3.0</span>、それ以外はMITライセンス。配る場合はライセンスに従う。</li>
+    </ul>
+  </div>
+</section>
+
+<section id="s9">
+  <h2><span class="num">09</span>困ったとき</h2>
+  <p class="lead">まず「基板を挿し直す → 基板のWi-Fiにつなぎ直す → 画面ミラーリングをやり直す」の順で試す。</p>
+  <p class="small">接続が切れたときは、アプリが作業を一時停止して、同じ手順から再開してくれる。</p>
+  <div class="tw"><table>
+    <thead><tr><th>症状</th><th>原因の見当</th><th>どうするか</th></tr></thead>
+    <tbody>
+      <tr><td>7日たったらアプリが開かない</td><td>無料Apple IDの署名期限切れ</td><td>iPhoneをMacにつないで Xcode の ▶ をもう一度押す</td></tr>
+      <tr><td><code>flash.sh</code> で基板が見つからない</td><td>ケーブルが充電専用、または基板が書き込み待ちになっていない</td><td>データ通信できるケーブルに替える。基板の「B」ボタンを押しながら挿し直して再実行</td></tr>
+      <tr><td>Xcode で署名エラー</td><td>Team が未選択、またはアプリの名札が他と重複</td><td>両方のターゲットで Team を選ぶ。<code>IA_BUNDLE_ID</code> を別の名前に変える</td></tr>
+      <tr><td>画面ミラーリングに「ESP32 Agent」が出ない</td><td>基板のWi-Fiにつながっていない</td><td>Wi-Fiの一覧で ESP32Agent-xxxx を選ぶ。パスワードはアプリの設定画面に出る</td></tr>
+      <tr><td>タップの位置がずれる</td><td>矢印の位置合わせがずれた</td><td>Calibrate を押す。AssistiveTouch の速さを真ん中に戻す</td></tr>
+      <tr><td>AIにつながらない</td><td>モバイルデータがオフ、URLかキーの間違い</td><td>モバイルデータ通信をオン。Base URL の末尾が <code>/v1</code> になっているか見る</td></tr>
+      <tr><td>途中で止まる・同じ所をくり返す</td><td>指示があいまい、またはAIの性能不足</td><td>指示を短く分ける。画像に強いモデルに替える</td></tr>
+      <tr><td>Macの <code>board_test.py</code> が基板を見つけない</td><td>iPhoneのアプリがBluetoothをつかんでいる</td><td>アプリを終了する。Macの Bluetooth をオンにする</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s10">
+  <h2><span class="num">10</span>用語集</h2>
+  <dl class="gl">
+    <dt id="g-agent">AIエージェント</dt><dd>指示を受けて、自分で考えながら道具を操作して作業を進めるAI。このプロジェクトではiPhoneを操作する。</dd>
+    <dt id="g-esp32">ESP32-S3</dt><dd>Wi-FiとBluetoothを内蔵した小さなマイコン（小型コンピュータ）。安くて電子工作でよく使われる。</dd>
+    <dt id="g-mirroring">画面ミラーリング</dt><dd>iPhoneの画面を、そのまま別の機械に映す機能。コントロールセンターから選ぶ。</dd>
+    <dt id="g-airplay">AirPlay</dt><dd>Appleの映像・音声の無線送信のしくみ。画面ミラーリングはこれを使う。基板がAirPlayの受け手のふりをする。</dd>
+    <dt id="g-hid">HID</dt><dd>マウスやキーボードのように、人が操作するための機器の規格。基板はこれのふりをしてiPhoneに挿さる。</dd>
+    <dt id="g-ble">Bluetooth（BLE）</dt><dd>近距離の無線通信。BLEは省電力版。基板とアプリ、基板とMacはこれでやりとりする。</dd>
+    <dt id="g-assistive">AssistiveTouch</dt><dd>iPhoneのアクセシビリティ機能。オンにするとマウスをつないだとき画面に丸い矢印が出て、クリックでタップできる。</dd>
+    <dt id="g-hotspot">ホットスポット</dt><dd>機械が自分でWi-Fiを出し、ほかの機械をつながせる機能。ここでは基板がWi-Fiを出す。</dd>
+    <dt id="g-h264">H.264</dt><dd>動画を小さく圧縮する方式。基板は映像をこの形式のまま、ほどかずにアプリへ送る。</dd>
+    <dt id="g-openai">OpenAI互換</dt><dd>OpenAIのAPIと同じ形で呼び出せること。多くのAIサービスや自宅サーバー用ソフトがこの形に合わせている。</dd>
+    <dt id="g-apikey">APIキー</dt><dd>AIサービスを使うための合言葉。これで誰が使ったかが分かり、料金が請求される。他人に見せない。</dd>
+    <dt id="g-intent">インテント</dt><dd>アプリに保存した作業のこと。名前、指示文、確認項目、成功率が記録され、Siriなどから呼び出せる。</dd>
+    <dt id="g-shortcuts">ショートカット</dt><dd>iPhoneの標準アプリ。決まった操作をまとめて、ボタン1つや音声で実行できる。</dd>
+    <dt id="g-island">Dynamic Island</dt><dd>iPhone上部の黒い部分に出る表示。作業中の様子が出て、ここから止められる。</dd>
+    <dt id="g-github">GitHub</dt><dd>プログラムのファイルを置いて公開・共有するWebサービス。変更の履歴も残る。</dd>
+    <dt id="g-repo">リポジトリ</dt><dd>GitHub上の1つのプロジェクトのファイル置き場。フォルダ1つ分と考えてよい。</dd>
+    <dt id="g-clone">クローン</dt><dd>リポジトリを自分のパソコンに丸ごと写すこと。</dd>
+    <dt id="g-devmode">デベロッパモード</dt><dd>iPhoneで、App Store以外から自分で組み立てたアプリを動かすためのスイッチ。Xcodeでつないだあとに設定に出てくる。</dd>
+    <dt id="g-gpl">GPL-3.0</dt><dd>ソフトのライセンスの一種。それを含むソフトを配るなら、中身（ソースコード）も同じ条件で公開する必要がある。</dd>
+  </dl>
+</section>
+
+<section id="s11">
+  <h2><span class="num">11</span>出典</h2>
+  <ul>
+    <li><a href="https://github.com/fkarubi/esp32-iphone-agent" target="_blank" rel="noopener">fkarubi/esp32-iphone-agent</a>（README、hardware/tools/README.md、docs/ble-protocol.md、ios/Config）</li>
+    <li><a href="https://github.com/onehumanbeing/esp32-iphone-agent" target="_blank" rel="noopener">onehumanbeing/esp32-iphone-agent</a>（元のプロジェクト）</li>
+    <li><a href="https://www.youtube.com/watch?v=Ly4im-P4jYg" target="_blank" rel="noopener">作者のデモ動画（YouTube）</a></li>
+    <li><a href="https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/" target="_blank" rel="noopener">Seeed Studio XIAO ESP32S3 入門（英語）</a></li>
+    <li><a href="https://arduino.github.io/arduino-cli/" target="_blank" rel="noopener">arduino-cli 公式</a> ／ <a href="https://brew.sh/ja/" target="_blank" rel="noopener">Homebrew 公式</a> ／ <a href="https://desktop.github.com/" target="_blank" rel="noopener">GitHub Desktop</a></li>
+  </ul>
+  <p class="small">「AIなしの使い方」は開発用ツールの流用で、作者が想定した使い方ではない。基板の価格や費用は目安で、購入先や時期で変わる。</p>
+</section>
+
+<footer>
+  <p>配色・書体の考え方は「デジタル庁デザインシステム」（MIT License, © デジタル庁）のデザイントークンにもとづく。本ページは公的機関とは無関係。</p>
+  <p>ESP32 iPhone Agent は MIT License（AirPlay部分は GPL-3.0）。</p>
+</footer>
+
+</main>
+</div>
+
+<div id="pop" hidden role="tooltip"></div>
+<button class="backbtn" id="backBtn" hidden></button>
+
+<script>
+(function(){
+  var sections=[].slice.call(document.querySelectorAll("main section[id]"));
+  function chapName(s){var h=s.querySelector("h2");var n=h.querySelector(".num");return {num:n?n.textContent:"",name:h.textContent.replace(n?n.textContent:"","").trim()};}
+
+  /* 目次・章メニュー */
+  var toc=document.getElementById("toc"),menu=document.getElementById("chapMenu"),menuBtn=document.getElementById("menuBtn");
+  sections.forEach(function(s){
+    var c=chapName(s);
+    [toc,menu].forEach(function(box){
+      var a=document.createElement("a");a.href="#"+s.id;a.innerHTML="<span>"+c.num+"</span>"+c.name;box.appendChild(a);
+    });
+  });
+  menuBtn.addEventListener("click",function(){var o=menu.hidden;menu.hidden=!o;menuBtn.setAttribute("aria-expanded",String(o));});
+  menu.addEventListener("click",function(e){if(e.target.closest("a")){menu.hidden=true;menuBtn.setAttribute("aria-expanded","false");}});
+  document.addEventListener("click",function(e){if(!menu.hidden&&!e.target.closest("#chapMenu,#menuBtn")){menu.hidden=true;menuBtn.setAttribute("aria-expanded","false");}});
+
+  /* 現在の章を目次で強調 */
+  var tocLinks=[].slice.call(toc.querySelectorAll("a"));
+  if("IntersectionObserver" in window){
+    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){tocLinks.forEach(function(a){a.classList.toggle("on",a.getAttribute("href")==="#"+e.target.id);});}});},{rootMargin:"-70px 0px -70% 0px"});
+    sections.forEach(function(s){io.observe(s);});
+  }
+
+  /* 章送り */
+  sections.forEach(function(s,i){
+    var p=document.createElement("nav");p.className="pager";p.setAttribute("aria-label","章送り");
+    var prev=sections[i-1],next=sections[i+1],html="";
+    html+=prev?'<a href="#'+prev.id+'">← '+chapName(prev).num+" "+chapName(prev).name+"</a>":"<span></span>";
+    html+='<a href="#top" data-top="1">先頭へ戻る</a>';
+    html+=next?'<a href="#'+next.id+'">'+chapName(next).num+" "+chapName(next).name+" →</a>":"<span></span>";
+    p.innerHTML=html;s.appendChild(p);
+  });
+  document.addEventListener("click",function(e){var a=e.target.closest("a[data-top]");if(a){e.preventDefault();window.scrollTo(0,0);}});
+
+  /* コピー */
+  [].forEach.call(document.querySelectorAll(".cmd .copy"),function(b){
+    b.addEventListener("click",function(){
+      var text=b.parentNode.querySelector("code").innerText;
+      function done(){b.textContent="コピー済";b.classList.add("done");setTimeout(function(){b.textContent="コピー";b.classList.remove("done");},1400);}
+      function fallback(){var t=document.createElement("textarea");t.value=text;t.style.position="fixed";t.style.opacity="0";document.body.appendChild(t);t.select();try{document.execCommand("copy");}catch(e){}document.body.removeChild(t);done();}
+      try{navigator.clipboard.writeText(text).then(done,fallback);}catch(e){fallback();}
+    });
+  });
+
+  /* 用語ポップアップ（辞書は用語集から作る） */
+  var dict={};
+  [].forEach.call(document.querySelectorAll("dl.gl dt[id^='g-']"),function(dt){dict[dt.id.slice(2)]=[dt.textContent,dt.nextElementSibling.textContent];});
+  var pop=document.getElementById("pop"),hideT=null,overPop=false,cur=null;
+  function show(el){
+    var d=dict[el.getAttribute("data-t")];if(!d)return;
+    clearTimeout(hideT);cur=el;
+    pop.innerHTML="<b></b><span></span><a href='#'>用語集で詳しく見る →</a>";
+    pop.querySelector("b").textContent=d[0];pop.querySelector("span").textContent=d[1];
+    pop.hidden=false;
+    var r=el.getBoundingClientRect(),pw=pop.offsetWidth,vw=document.documentElement.clientWidth;
+    var left=Math.min(Math.max(8,r.left+window.pageXOffset),window.pageXOffset+vw-pw-8);
+    pop.style.left=left+"px";pop.style.top=(r.bottom+window.pageYOffset+8)+"px";
+  }
+  function hideSoon(){clearTimeout(hideT);hideT=setTimeout(function(){if(!overPop){pop.hidden=true;}},160);}
+  [].forEach.call(document.querySelectorAll(".tt"),function(el){
+    el.addEventListener("mouseenter",function(){show(el);});
+    el.addEventListener("mouseleave",hideSoon);
+    el.addEventListener("focus",function(){show(el);});
+    el.addEventListener("blur",hideSoon);
+    el.addEventListener("click",function(e){e.stopPropagation();if(!pop.hidden&&cur===el){pop.hidden=true;}else{show(el);}});
+    el.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();goGloss(el);}});
+  });
+  pop.addEventListener("mouseenter",function(){overPop=true;clearTimeout(hideT);});
+  pop.addEventListener("mouseleave",function(){overPop=false;hideSoon();});
+  document.addEventListener("click",function(e){if(!pop.hidden&&!e.target.closest("#pop,.tt"))pop.hidden=true;});
+  pop.addEventListener("click",function(e){var a=e.target.closest("a");if(a){e.preventDefault();if(cur)goGloss(cur);}});
+
+  /* 用語集へ → 戻る */
+  var back=document.getElementById("backBtn"),backY=0,backEl=null,watchOn=false;
+  function goGloss(el){
+    var dt=document.getElementById("g-"+el.getAttribute("data-t"));if(!dt)return;
+    backY=window.pageYOffset;backEl=el;pop.hidden=true;overPop=false;
+    dt.scrollIntoView({block:"start"});
+    [].forEach.call(document.querySelectorAll("dl.gl dt.hit"),function(x){x.classList.remove("hit");});
+    dt.classList.add("hit");
+    back.textContent="← 元の場所に戻る（"+el.textContent+"）";back.hidden=false;
+    watchOn=false;setTimeout(function(){watchOn=true;},1200);
+  }
+  back.addEventListener("click",function(){
+    window.scrollTo(0,backY);back.hidden=true;
+    if(backEl){backEl.classList.remove("hitflash");void backEl.offsetWidth;backEl.classList.add("hitflash");backEl.focus({preventScroll:true});}
+  });
+  window.addEventListener("scroll",function(){if(watchOn&&!back.hidden&&Math.abs(window.pageYOffset-backY)<160){back.hidden=true;}},{passive:true});
+
+  /* ページ内検索 */
+  var index=[];
+  sections.forEach(function(sec){
+    var c=chapName(sec),sub="";
+    [].forEach.call(sec.querySelectorAll("h3, .st, p, li, td, th, dt, dd, figcaption"),function(el){
+      if(el.closest(".pager"))return;
+      if(el.matches("h3, .st")){sub=el.textContent.trim();}
+      if(el.matches("li")&&el.querySelector("p, li, .content"))return;
+      var t=el.textContent.replace(/\s+/g," ").trim();
+      if(t)index.push({chap:c.num+" "+c.name,sub:sub,el:el,text:t});
+    });
+  });
+  var q=document.getElementById("q"),res=document.getElementById("results"),sel=-1,hits=[];
+  function esc(s){return s.replace(/[&<>"]/g,function(m){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m];});}
+  function run(){
+    var words=q.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if(!words.length){res.hidden=true;return;}
+    hits=index.filter(function(it){var t=it.text.toLowerCase();return words.every(function(w){return t.indexOf(w)>=0;});}).slice(0,30);
+    sel=hits.length?0:-1;
+    if(!hits.length){res.innerHTML='<div class="none">見つかりませんでした</div>';res.hidden=false;return;}
+    res.innerHTML=hits.map(function(it,i){
+      var t=it.text,lt=t.toLowerCase(),p=lt.indexOf(words[0]),s=Math.max(0,p-24),snip=(s>0?"…":"")+t.slice(s,s+80)+(t.length>s+80?"…":"");
+      var h=esc(snip);words.forEach(function(w){var re=new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),"gi");h=h.replace(re,function(m){return "<mark>"+m+"</mark>";});});
+      return '<button role="option" data-i="'+i+'" aria-selected="'+(i===sel)+'"><span class="where">'+esc(it.chap)+(it.sub?" › "+esc(it.sub):"")+"</span>"+h+"</button>";
+    }).join("");
+    res.hidden=false;
+  }
+  function go(i){var it=hits[i];if(!it)return;res.hidden=true;it.el.scrollIntoView({block:"center"});it.el.classList.remove("hitflash");void it.el.offsetWidth;it.el.classList.add("hitflash");}
+  function mark(){[].forEach.call(res.querySelectorAll("button"),function(b,i){b.setAttribute("aria-selected",String(i===sel));if(i===sel)b.scrollIntoView({block:"nearest"});});}
+  q.addEventListener("input",run);
+  q.addEventListener("focus",function(){if(q.value)run();});
+  q.addEventListener("keydown",function(e){
+    if(e.key==="ArrowDown"){e.preventDefault();if(hits.length){sel=(sel+1)%hits.length;mark();}}
+    else if(e.key==="ArrowUp"){e.preventDefault();if(hits.length){sel=(sel-1+hits.length)%hits.length;mark();}}
+    else if(e.key==="Enter"){e.preventDefault();go(sel);}
+    else if(e.key==="Escape"){res.hidden=true;q.blur();}
+  });
+  res.addEventListener("click",function(e){var b=e.target.closest("button");if(b)go(+b.getAttribute("data-i"));});
+  document.addEventListener("click",function(e){if(!e.target.closest(".search"))res.hidden=true;});
+  document.addEventListener("keydown",function(e){
+    if(e.key==="/"&&!/input|textarea/i.test(document.activeElement.tagName)){e.preventDefault();q.focus();}
+    if(e.key==="Escape"){pop.hidden=true;menu.hidden=true;}
+  });
+})();
+</script>
+
+</body>
+</html>
